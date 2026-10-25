@@ -1,0 +1,7 @@
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+infrastructure/cdk.out/
+cdk.context.json
+.env

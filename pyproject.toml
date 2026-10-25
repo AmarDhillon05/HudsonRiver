@@ -1,0 +1,14 @@
+[project]
+name = "laptop-deal-alert"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Scheduled Lambda that watches laptop prices and pushes deals to ntfy."
+# The Lambda itself uses only the standard library plus boto3 from the runtime.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "boto3", "aws-cdk-lib>=2.170,<3", "constructs>=10,<11"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]

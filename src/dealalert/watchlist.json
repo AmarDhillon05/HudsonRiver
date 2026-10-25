@@ -1,0 +1,31 @@
+{
+  "exclude": [
+    "refurb", "refurbished", "reconditioned", "renewed", "recertified", "pre-owned", "preowned",
+    "open box", "open-box", "used", "scratch and dent", "s&d", "expired", "for parts", "woot grade"
+  ],
+  "near_pct": 0.10,
+  "max_post_age_days": 3,
+  "items": [
+    {
+      "id": "x1-carbon-gen14",
+      "name": "ThinkPad X1 Carbon Gen 14",
+      "target": 1600,
+      "query": "x1 carbon",
+      "match": [["x1 carbon"], ["gen 14", "gen14", "g14"]]
+    },
+    {
+      "id": "elitebook-x-g1a",
+      "name": "HP EliteBook X G1a",
+      "target": 1300,
+      "query": "elitebook x g1a",
+      "match": [["elitebook x"], ["g1a"]]
+    },
+    {
+      "id": "p14s-gen6-amd",
+      "name": "ThinkPad P14s Gen 6 AMD",
+      "target": 1300,
+      "query": "p14s gen 6",
+      "match": [["p14s"], ["gen 6", "gen6", "g6"], ["amd", "ryzen"]]
+    }
+  ]
+}
