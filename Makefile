@@ -5,11 +5,13 @@ CDK ?= $(if $(shell command -v cdk),cdk,npx --yes aws-cdk@2)
 # Public ntfy.sh topic: anyone who knows the name can read it or post to it.
 NTFY_TOPIC ?= hudson-river
 INTERVAL_MINUTES ?= 30
+#: When the daily summary is pushed, in UTC (13 = 9am Eastern in summer, 8am in winter).
+SUMMARY_HOUR_UTC ?= 13
 #: Extra `cdk deploy` flags. CI passes `--require-approval never`.
 CDK_DEPLOY_FLAGS ?=
 GITHUB_REPO ?= AmarDhillon05/hudsonriver
 GITHUB_BRANCH ?= main
-CONTEXT = -c ntfyTopic=$(NTFY_TOPIC) -c intervalMinutes=$(INTERVAL_MINUTES) $(if $(BESTBUY_API_KEY),-c bestbuyApiKey=$(BESTBUY_API_KEY))
+CONTEXT = -c ntfyTopic=$(NTFY_TOPIC) -c intervalMinutes=$(INTERVAL_MINUTES) -c summaryHourUtc=$(SUMMARY_HOUR_UTC) $(if $(BESTBUY_API_KEY),-c bestbuyApiKey=$(BESTBUY_API_KEY))
 
 .PHONY: setup test dry-run synth setup-ci bootstrap deploy deploy-github-role destroy
 

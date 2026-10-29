@@ -3,7 +3,7 @@
 One DynamoDB table, key ``pk``:
 - ``seen#<sha1 of url>``: a Slickdeals post already handled (expires after 45 days).
 - ``best#<item id>``: lowest Best Buy price seen and the last price alerted on.
-- ``health``: per-source failure tracking and the weekly note's counters.
+- ``health``: per-source failure tracking and the daily summary's counters and closest prices.
 """
 
 from __future__ import annotations

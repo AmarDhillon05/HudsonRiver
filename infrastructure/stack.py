@@ -33,6 +33,7 @@ class DealAlertStack(Stack):
         ntfy_server: str = "https://ntfy.sh",
         bestbuy_api_key: str | None = None,
         interval_minutes: int = 30,
+        summary_hour_utc: int = 13,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -79,13 +80,13 @@ class DealAlertStack(Stack):
             targets=[targets.LambdaFunction(fn, retry_attempts=0)],
         )
 
-        # Sunday 17:00 UTC: a low-priority "still running" push, urgent if checks have stopped.
+        # Once a day, deals or not: a low-priority summary, urgent if checks have stopped.
         events.Rule(
             self,
-            "WeeklyNote",
-            description="Weekly 'deal alert is still running' push",
-            schedule=events.Schedule.cron(minute="0", hour="17", week_day="SUN"),
+            "DailySummary",
+            description=f"Daily deal summary push at {summary_hour_utc:02d}:00 UTC",
+            schedule=events.Schedule.cron(minute="0", hour=str(summary_hour_utc)),
             targets=[targets.LambdaFunction(
-                fn, event=events.RuleTargetInput.from_object({"task": "weekly-note"}), retry_attempts=2
+                fn, event=events.RuleTargetInput.from_object({"task": "daily-summary"}), retry_attempts=2
             )],
         )

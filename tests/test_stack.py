@@ -14,7 +14,7 @@ def test_minimal_footprint():
     t = synth()
     t.resource_count_is("AWS::Lambda::Function", 1)
     t.resource_count_is("AWS::DynamoDB::Table", 1)
-    t.resource_count_is("AWS::Events::Rule", 2)  # price check + weekly note
+    t.resource_count_is("AWS::Events::Rule", 2)  # price check + daily summary
     # Nothing that bills by the hour.
     for kind in ("AWS::EC2::NatGateway", "AWS::EC2::VPC", "AWS::SQS::Queue", "AWS::SNS::Topic", "AWS::ApiGateway::RestApi"):
         t.resource_count_is(kind, 0)
@@ -52,9 +52,9 @@ def test_bestbuy_key_only_when_given():
 
 
 def test_schedules():
-    t = synth(interval_minutes=60)
+    t = synth(interval_minutes=60, summary_hour_utc=12)
     t.has_resource_properties("AWS::Events::Rule", {"ScheduleExpression": "rate(1 hour)"})
     t.has_resource_properties("AWS::Events::Rule", {
-        "ScheduleExpression": "cron(0 17 ? * SUN *)",
-        "Targets": [Match.object_like({"Input": '{"task":"weekly-note"}'})],
+        "ScheduleExpression": "cron(0 12 * * ? *)",
+        "Targets": [Match.object_like({"Input": '{"task":"daily-summary"}'})],
     })

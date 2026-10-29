@@ -34,6 +34,8 @@ DealAlertStack(
     # Optional, from developer.bestbuy.com. Without it only Slickdeals is checked.
     bestbuy_api_key=app.node.try_get_context("bestbuyApiKey") or os.environ.get("BESTBUY_API_KEY") or None,
     interval_minutes=int(app.node.try_get_context("intervalMinutes") or 30),
+    # 13:00 UTC is 9am Eastern in summer, 8am in winter.
+    summary_hour_utc=int(app.node.try_get_context("summaryHourUtc") or 13),
     env=env,
 )
 

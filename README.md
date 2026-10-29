@@ -5,7 +5,7 @@ Watches for deals on a short list of laptops and pushes them to your phone with
 
 ```text
 EventBridge (every 30 min) ─┐
-EventBridge (weekly)       ─┴→ Lambda → Slickdeals RSS + Best Buy API
+EventBridge (daily)        ─┴→ Lambda → Slickdeals RSS + Best Buy API
                                   ↓                ↓
                           DynamoDB (dedupe)   ntfy push
 ```
@@ -33,13 +33,16 @@ listed fee.
 | Default (3) | A new deal within 10% of target, or a new Best Buy low within 10% |
 | Low (2) | A matching deal was posted but its price isn't in the title |
 
-Plus two alerts about the checker itself, so silence never means "broken":
+Plus a daily summary and alerts about the checker itself, so silence never means "broken":
 
 | Priority | When |
 | --- | --- |
+| Low (2) | Every day at 13:00 UTC, deals or not: alerts sent, checks run, and the closest price seen for each laptop. High if no check has succeeded in 6 hours |
 | High (4) | A source (Slickdeals or Best Buy) has failed on every check for 3 hours |
 | Low (2) | That source is working again |
-| Low (2) | Sunday 17:00 UTC: "still running, N alerts this week" (High if no check has succeeded in 6 hours) |
+
+Change the summary time with `SUMMARY_HOUR_UTC=<0-23>` (13 is 9am Eastern in
+summer, 8am in winter).
 
 Each Slickdeals post alerts once. A Best Buy price alerts once at target, then
 again only if it drops further, or after it rises above target and drops back.

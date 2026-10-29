@@ -144,24 +144,53 @@ def test_a_blip_resets_the_failure_clock():
     assert sender.sent == []
 
 
-def test_weekly_note_counts_alerts_and_resets():
+def test_daily_summary_with_no_deals_still_pushes_closest_prices():
+    state = MemoryState()
+    # Seen before (no new alert) but still the closest current price; one old post ignored.
+    state.mark_seen("https://sd/near")
+    run([post("X1 Carbon Gen 14 $1,749", 1749, "https://sd/near"),
+         post("X1 Carbon Gen 14 $1,299", 1299, "https://sd/old", age_days=10)], state=state)
+    run([], state=state)
+    sender = ConsoleSender()
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
+    [note] = sender.sent
+    assert note.title == "Deal alert: no deals today"
+    assert note.priority == ntfy.CHECK_PRICE
+    assert "X1 Carbon Gen 14: $1,749 at Slickdeals, $149 over (target $1,600)" in note.message
+    assert "Checked 2 times since the last summary." in note.message
+    assert note.url == "https://sd/near"
+
+
+def test_daily_summary_counts_alerts_and_resets():
     state = MemoryState()
     run([post("X1 Carbon Gen 14 $1,499", 1499)], state=state)
     sender = ConsoleSender()
-    check.weekly_note(WL, state, sender, now=NOW + timedelta(hours=1))
-    assert sender.sent[0].title == "Deal alert is running: 1 alert this week"
-    assert sender.sent[0].priority == ntfy.CHECK_PRICE
-    check.weekly_note(WL, state, sender, now=NOW + timedelta(hours=2))
-    assert sender.sent[1].title == "Deal alert is running: 0 alerts this week"
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
+    assert sender.sent[0].title == "Deal alert: 1 alert today"
+    assert "AT TARGET" in sender.sent[0].message
+    run([], state=state, )
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=2))
+    assert sender.sent[1].title == "Deal alert: no deals today"
+    assert "X1 Carbon Gen 14: nothing posted (target $1,600)" in sender.sent[1].message
+    assert "Checked 1 time since" in sender.sent[1].message
 
 
-def test_weekly_note_is_urgent_when_checks_stopped():
+def test_daily_summary_keeps_the_cheapest_across_runs_and_sources():
+    state = MemoryState()
+    run([post("X1 Carbon Gen 14 $1,750", 1750, "https://sd/a")], best=[bb(1720)], state=state)
+    run([post("X1 Carbon Gen 14 $1,690", 1690, "https://sd/b")], best=[bb(1720)], state=state)
+    sender = ConsoleSender()
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
+    assert "$1,690 at Slickdeals" in sender.sent[0].message
+
+
+def test_daily_summary_is_urgent_when_checks_stopped():
     state = MemoryState()
     run([], state=state)
     sender = ConsoleSender()
-    check.weekly_note(WL, state, sender, now=NOW + timedelta(days=2))
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(days=2))
     assert sender.sent[0].priority == ntfy.AT_TARGET
     assert sender.sent[0].title.startswith("Deal alert hasn't completed a check since 2026-10-25 20:00")
     fresh = ConsoleSender()
-    check.weekly_note(WL, MemoryState(), fresh, now=NOW)
+    check.daily_summary(WL, MemoryState(), fresh, now=NOW)
     assert fresh.sent[0].title == "Deal alert hasn't completed a check yet"
