@@ -1,0 +1,75 @@
+# Test on every push and pull request; on a push to main, deploy LaptopDealAlert.
+#
+# No AWS keys live in GitHub: the deploy job trades a short-lived OIDC token for
+# the role created once by `make deploy-github-role` (README "Automatic
+# deploys"). Until the AWS_DEPLOY_ROLE_ARN repository variable is set, the
+# deploy job is skipped and this only tests.
+name: test-and-deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch: # "Run workflow" button: redeploy without a code change
+
+permissions:
+  contents: read
+
+# One deploy at a time, in push order; a newer push waits rather than cancelling
+# a CloudFormation update half way.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install (python + CDK CLI)
+        run: make setup-ci
+      - name: Tests (logic + CDK template assertions)
+        run: make test
+      - name: Synth
+        run: make synth
+
+  deploy:
+    needs: test
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref == 'refs/heads/main'
+      && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # for the OIDC token exchanged for AWS credentials
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install (python + CDK CLI)
+        run: make setup-ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - name: Deploy LaptopDealAlert
+        env:
+          # Optional repository secrets; the Makefile defaults the topic to hudson-river.
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          NTFY_TOPIC_OVERRIDE: ${{ vars.NTFY_TOPIC }}
+        # Values come from env, never interpolated into the script, so they cannot inject shell.
+        run: make deploy ${NTFY_TOPIC_OVERRIDE:+NTFY_TOPIC="$NTFY_TOPIC_OVERRIDE"} CDK_DEPLOY_FLAGS="--require-approval never --progress events"

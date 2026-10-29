@@ -1,5 +1,5 @@
 {
-  "app": "python3 app.py",
+  "app": "sh -c 'if [ -x ../.venv/bin/python ]; then exec ../.venv/bin/python app.py; else exec python3 app.py; fi'",
   "watch": { "include": ["**"], "exclude": ["README.md", "cdk*.json", "**/__pycache__"] },
   "context": {
     "@aws-cdk/core:checkSecretUsage": true,

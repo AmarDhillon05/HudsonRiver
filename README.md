@@ -64,7 +64,7 @@ Edit it, run `make test`, and redeploy.
 ## Running it
 
 ```bash
-pip install -e ".[dev]"
+make setup                # creates .venv and installs everything; no need to activate it
 make test                 # unit tests + CDK synth assertions, no AWS needed
 make dry-run              # one real check against the live feeds, prints alerts
 make dry-run ARGS=--any-age   # same, including old posts (to see matching at work)
@@ -81,7 +81,8 @@ make dry-run ARGS=--any-age   # same, including old posts (to see matching at wo
 
 ## Deploying
 
-Needs AWS credentials and the CDK CLI (`npm i -g aws-cdk`).
+Needs AWS credentials in your shell and Node (the Makefile runs the CDK CLI
+through `npx` if `cdk` isn't installed).
 
 ```bash
 make bootstrap                         # once per account/region
@@ -94,3 +95,23 @@ different topic, `INTERVAL_MINUTES=60` to check less often. Topics on ntfy.sh ar
 public: anyone who knows the name can read the alerts or post fake ones.
 
 To remove everything: `make destroy`.
+
+## Automatic deploys
+
+After a one-time setup, every push to `main` runs the tests and redeploys
+through GitHub Actions (`.github/workflows/deploy.yml`). No AWS keys are stored
+in GitHub: the workflow signs in with GitHub's OIDC token, and the role it gets
+trusts only this repo's `main` branch and can do nothing except run `cdk deploy`.
+
+1. Create the role, once (reuses the GitHub OIDC provider the jobs repo already
+   created; add `CREATE_OIDC_PROVIDER=1` in an account that has none):
+   ```bash
+   make deploy-github-role
+   ```
+2. Copy the `DeployRoleArn` it prints into GitHub: repo Settings → Secrets and
+   variables → Actions → **Variables** → `AWS_DEPLOY_ROLE_ARN`.
+3. Optional: a `BESTBUY_API_KEY` **secret**, an `AWS_REGION` variable (default
+   `us-east-1`), an `NTFY_TOPIC` variable (default `hudson-river`).
+
+Until `AWS_DEPLOY_ROLE_ARN` is set, the workflow only runs the tests. The
+"Run workflow" button redeploys without a code change.
