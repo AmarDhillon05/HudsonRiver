@@ -84,13 +84,13 @@ make dry-run ARGS=--any-age   # same, including old posts (to see matching at wo
 Needs AWS credentials and the CDK CLI (`npm i -g aws-cdk`).
 
 ```bash
-make bootstrap                                        # once per account/region
-make deploy NTFY_TOPIC=<your-private-topic>           # Slickdeals only
-make deploy NTFY_TOPIC=<topic> BESTBUY_API_KEY=<key>  # plus Best Buy
+make bootstrap                         # once per account/region
+make deploy                            # Slickdeals only, to the ntfy topic "hudson-river"
+make deploy BESTBUY_API_KEY=<key>      # plus Best Buy
 ```
 
-Optional: `INTERVAL_MINUTES=60` to check less often. Subscribe to your topic in
-the ntfy app. Anyone who knows the topic name can read it, so pick something
-unguessable.
+Subscribe to `hudson-river` in the ntfy app. Optional: `NTFY_TOPIC=...` to use a
+different topic, `INTERVAL_MINUTES=60` to check less often. Topics on ntfy.sh are
+public: anyone who knows the name can read the alerts or post fake ones.
 
 To remove everything: `make destroy`.

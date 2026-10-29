@@ -1,4 +1,6 @@
 CDK ?= cdk
+# Public ntfy.sh topic: anyone who knows the name can read it or post to it.
+NTFY_TOPIC ?= hudson-river
 INTERVAL_MINUTES ?= 30
 CONTEXT = -c ntfyTopic=$(NTFY_TOPIC) -c intervalMinutes=$(INTERVAL_MINUTES) $(if $(BESTBUY_API_KEY),-c bestbuyApiKey=$(BESTBUY_API_KEY))
 
