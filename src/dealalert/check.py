@@ -67,7 +67,7 @@ def bestbuy_alerts(item: Item, listings: list[Listing], wl: Watchlist, state: St
         return []
     cheapest = min(priced, key=lambda l: l.price)
     price = cheapest.price
-    prev = state.get_best(item.id) or {}
+    prev = state.get("best#" + item.id) or {}
     prev_low = prev.get("low")
     prev_alerted = prev.get("alerted")
 
@@ -90,8 +90,18 @@ def bestbuy_alerts(item: Item, listings: list[Listing], wl: Watchlist, state: St
     elif prev_alerted is not None and price <= item.target:
         record["alerted"] = prev_alerted
     # Otherwise the price is back above target: drop "alerted" so the next drop alerts again.
-    state.put_best(item.id, record)
+    state.put("best#" + item.id, record)
     return [alert] if alert else []
+
+
+SOURCE_LABELS = {"slickdeals": "Slickdeals", "bestbuy": "Best Buy"}
+
+# A source that has failed on every fetch for this long gets one ntfy alert.
+FAILING_ALERT_AFTER = timedelta(hours=3)
+# The weekly note turns urgent if no check has succeeded for this long.
+STALE_AFTER = timedelta(hours=6)
+
+HEALTH_KEY = "health"
 
 
 def run(
@@ -102,10 +112,12 @@ def run(
     bestbuy_search: BestBuySearch | None = None,
     now: datetime | None = None,
 ) -> dict:
-    """Check every item. A failing source is logged and skipped; if every fetch
-    fails, raise so the Lambda reports an error instead of failing silently."""
+    """Check every item. A failing source is logged and skipped. A source that
+    keeps failing is reported to ntfy (and again when it recovers), and if every
+    fetch fails the run raises so the Lambda also shows an error."""
     now = now or datetime.now(timezone.utc)
     sent, fetches, failures = 0, 0, 0
+    source_results: dict[str, list[str | None]] = {}  # source -> error per fetch (None = ok)
     for item in wl.items:
         sources = [("slickdeals", slickdeals_search, slickdeals_alerts)]
         if bestbuy_search:
@@ -114,16 +126,74 @@ def run(
             fetches += 1
             try:
                 listings = search(item.query)
-            except Exception:
+            except Exception as e:
                 failures += 1
+                source_results.setdefault(name, []).append(f"{type(e).__name__}: {e}")
                 log.exception("fetch failed: %s for %s", name, item.id)
                 continue
+            source_results.setdefault(name, []).append(None)
             for alert in decide(item, listings, wl, state, now):
                 sender.send(alert)
                 sent += 1
+
+    _update_health(state, sender, source_results, sent, now)
     if fetches and failures == fetches:
         raise RuntimeError(f"all {fetches} price fetches failed")
     return {"items": len(wl.items), "fetches": fetches, "failures": failures, "alerts": sent}
+
+
+def _update_health(state: State, sender, source_results: dict, sent: int, now: datetime) -> None:
+    health = state.get(HEALTH_KEY) or {}
+    sources = health.get("sources", {})
+    for name, errors in source_results.items():
+        label = SOURCE_LABELS.get(name, name)
+        record = sources.get(name, {})
+        if all(errors):  # every fetch from this source failed
+            since = record.get("failing_since") or now.isoformat()
+            record = {"failing_since": since, "alerted": record.get("alerted", False), "error": errors[-1][:300]}
+            if not record["alerted"] and now - datetime.fromisoformat(since) >= FAILING_ALERT_AFTER:
+                sender.send(Alert(
+                    f"Deal alert: {label} checks are failing",
+                    f"Every {label} check has failed since {since[:16].replace('T', ' ')} UTC, "
+                    f"so deals there can be missed.\nLast error: {record['error']}",
+                    ntfy.AT_TARGET, _source_url(name), ("warning",),
+                ))
+                record["alerted"] = True
+        else:
+            if record.get("alerted"):
+                sender.send(Alert(f"Deal alert: {label} checks are working again", "Back to normal.",
+                                  ntfy.CHECK_PRICE, _source_url(name), ("white_check_mark",)))
+            record = {}
+        sources[name] = record
+    health["sources"] = sources
+    if any(e is None for errors in source_results.values() for e in errors):
+        health["last_ok"] = now.isoformat()
+    health["alerts_since_note"] = health.get("alerts_since_note", 0) + sent
+    state.put(HEALTH_KEY, health)
+
+
+def _source_url(name: str) -> str:
+    return "https://www.bestbuy.com" if name == "bestbuy" else "https://slickdeals.net"
+
+
+def weekly_note(wl: Watchlist, state: State, sender, now: datetime | None = None) -> dict:
+    """A low-priority "still running" push, so silence never hides a broken checker."""
+    now = now or datetime.now(timezone.utc)
+    health = state.get(HEALTH_KEY) or {}
+    last_ok = health.get("last_ok")
+    count = health.get("alerts_since_note", 0)
+    names = ", ".join(f"{i.name} ({_money(i.target)})" for i in wl.items)
+    if last_ok and now - datetime.fromisoformat(last_ok) < STALE_AFTER:
+        title = f"Deal alert is running: {count} alert{'s' if count != 1 else ''} this week"
+        priority = ntfy.CHECK_PRICE
+    else:
+        when = f"since {last_ok[:16].replace('T', ' ')} UTC" if last_ok else "yet"
+        title = f"Deal alert hasn't completed a check {when}"
+        priority = ntfy.AT_TARGET
+    sender.send(Alert(title, f"Watching: {names}", priority, "https://slickdeals.net", ("calendar",)))
+    health["alerts_since_note"] = 0
+    state.put(HEALTH_KEY, health)
+    return {"note": title}
 
 
 def bestbuy_searcher(api_key: str | None) -> BestBuySearch | None:

@@ -43,3 +43,10 @@ def test_bestbuy_parse_and_url():
     assert len(listings) == 1
     assert listings[0].price == 1199.99 and listings[0].regular_price == 1599.99
     assert bestbuy._search_clause("elitebook x g1a") == "search=elitebook&search=x&search=g1a"
+
+
+def test_parse_price_skips_discount_amounts():
+    assert slickdeals.parse_price("ThinkPad X1 Carbon Gen 14 $400 off, now $1,449") == 1449
+    assert slickdeals.parse_price("Save $500 on EliteBook X G1a: $1,199") == 1199
+    assert slickdeals.parse_price("P14s Gen 6 AMD $1,279 w/ $300 instant savings") == 1279
+    assert slickdeals.parse_price("Extra $350 off ThinkPads sitewide") is None

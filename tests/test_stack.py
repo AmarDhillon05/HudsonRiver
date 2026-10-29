@@ -14,15 +14,15 @@ def test_minimal_footprint():
     t = synth()
     t.resource_count_is("AWS::Lambda::Function", 1)
     t.resource_count_is("AWS::DynamoDB::Table", 1)
-    t.resource_count_is("AWS::Events::Rule", 1)
+    t.resource_count_is("AWS::Events::Rule", 2)  # price check + weekly note
     # Nothing that bills by the hour.
     for kind in ("AWS::EC2::NatGateway", "AWS::EC2::VPC", "AWS::SQS::Queue", "AWS::SNS::Topic", "AWS::ApiGateway::RestApi"):
         t.resource_count_is(kind, 0)
 
 
-def test_table_stays_in_free_tier():
+def test_table_is_on_demand_with_ttl():
     synth().has_resource_properties("AWS::DynamoDB::Table", {
-        "ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1},
+        "BillingMode": "PAY_PER_REQUEST",
         "TimeToLiveSpecification": {"AttributeName": "expires", "Enabled": True},
     })
 
@@ -51,5 +51,10 @@ def test_bestbuy_key_only_when_given():
     })
 
 
-def test_schedule_interval():
-    synth(interval_minutes=60).has_resource_properties("AWS::Events::Rule", {"ScheduleExpression": "rate(1 hour)"})
+def test_schedules():
+    t = synth(interval_minutes=60)
+    t.has_resource_properties("AWS::Events::Rule", {"ScheduleExpression": "rate(1 hour)"})
+    t.has_resource_properties("AWS::Events::Rule", {
+        "ScheduleExpression": "cron(0 17 ? * SUN *)",
+        "Targets": [Match.object_like({"Input": '{"task":"weekly-note"}'})],
+    })

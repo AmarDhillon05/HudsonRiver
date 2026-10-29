@@ -22,10 +22,18 @@ MIN_PLAUSIBLE_PRICE = 300
 _PRICE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{2}))?")
 
 
+# Amounts that are discounts, not prices: "$400 off", "Save $500", "$300 savings".
+_DISCOUNT_AFTER = re.compile(r"\s*(?:off|discount|savings?|rebate|instant savings)\b", re.I)
+_DISCOUNT_BEFORE = re.compile(r"(?:save|saving|savings of|extra|additional)\s*(?:up to\s*)?$", re.I)
+
+
 def parse_price(title: str) -> float | None:
     """Lowest plausible laptop price in a deal title, e.g. "... $1,385" -> 1385.0."""
     prices = []
-    for whole, cents in _PRICE.findall(title):
+    for m in _PRICE.finditer(title):
+        if _DISCOUNT_AFTER.match(title, m.end()) or _DISCOUNT_BEFORE.search(title[: m.start()]):
+            continue
+        whole, cents = m.groups()
         value = float(whole.replace(",", "")) + (int(cents) / 100 if cents else 0)
         if value >= MIN_PLAUSIBLE_PRICE:
             prices.append(value)

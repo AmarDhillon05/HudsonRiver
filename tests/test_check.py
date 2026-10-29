@@ -86,7 +86,7 @@ def test_bestbuy_near_target_new_low():
     lower, _, _ = run(best=[bb(1690)], state=state)
     assert first == []  # no previous low to compare against
     assert [a.priority for a in lower] == [ntfy.NEAR_TARGET]
-    assert state.get_best("x1")["low"] == 1690
+    assert state.get("best#x1")["low"] == 1690
 
 
 def test_one_failing_source_does_not_stop_the_other():
@@ -104,3 +104,64 @@ def test_all_sources_failing_raises():
 
     with pytest.raises(RuntimeError):
         check.run(WL, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)
+
+
+def broken(q):
+    raise OSError("HTTP 403 Forbidden")
+
+
+def ok_slick(q):
+    return []
+
+
+def check_at(state, sender, when, slick):
+    try:
+        check.run(WL, state, sender, slickdeals_search=slick, now=when)
+    except RuntimeError:
+        pass  # every fetch failed; expected while the source is down
+
+
+def test_failing_source_alerts_once_after_three_hours_then_on_recovery():
+    state, sender = MemoryState(), ConsoleSender()
+    for minutes in (0, 30, 120, 150):
+        check_at(state, sender, NOW + timedelta(minutes=minutes), broken)
+    assert sender.sent == []  # under 3 hours: stay quiet, it may be a blip
+    check_at(state, sender, NOW + timedelta(hours=3), broken)
+    check_at(state, sender, NOW + timedelta(hours=4), broken)
+    assert [a.title for a in sender.sent] == ["Deal alert: Slickdeals checks are failing"]
+    assert sender.sent[0].priority == ntfy.AT_TARGET and "403" in sender.sent[0].message
+    check_at(state, sender, NOW + timedelta(hours=5), ok_slick)
+    check_at(state, sender, NOW + timedelta(hours=6), ok_slick)
+    assert [a.title for a in sender.sent][1:] == ["Deal alert: Slickdeals checks are working again"]
+
+
+def test_a_blip_resets_the_failure_clock():
+    state, sender = MemoryState(), ConsoleSender()
+    check_at(state, sender, NOW, broken)
+    check_at(state, sender, NOW + timedelta(hours=2), ok_slick)
+    check_at(state, sender, NOW + timedelta(hours=4), broken)
+    check_at(state, sender, NOW + timedelta(hours=5), broken)
+    assert sender.sent == []
+
+
+def test_weekly_note_counts_alerts_and_resets():
+    state = MemoryState()
+    run([post("X1 Carbon Gen 14 $1,499", 1499)], state=state)
+    sender = ConsoleSender()
+    check.weekly_note(WL, state, sender, now=NOW + timedelta(hours=1))
+    assert sender.sent[0].title == "Deal alert is running: 1 alert this week"
+    assert sender.sent[0].priority == ntfy.CHECK_PRICE
+    check.weekly_note(WL, state, sender, now=NOW + timedelta(hours=2))
+    assert sender.sent[1].title == "Deal alert is running: 0 alerts this week"
+
+
+def test_weekly_note_is_urgent_when_checks_stopped():
+    state = MemoryState()
+    run([], state=state)
+    sender = ConsoleSender()
+    check.weekly_note(WL, state, sender, now=NOW + timedelta(days=2))
+    assert sender.sent[0].priority == ntfy.AT_TARGET
+    assert sender.sent[0].title.startswith("Deal alert hasn't completed a check since 2026-10-25 20:00")
+    fresh = ConsoleSender()
+    check.weekly_note(WL, MemoryState(), fresh, now=NOW)
+    assert fresh.sent[0].title == "Deal alert hasn't completed a check yet"

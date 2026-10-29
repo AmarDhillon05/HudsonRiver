@@ -3,8 +3,8 @@
 Sized to stay inside AWS's always-free tiers:
 - Lambda: ~1,500 runs a month at 128 MB on ARM is a tiny fraction of the
   always-free 1M requests / 400,000 GB-seconds.
-- DynamoDB: provisioned at 1 read / 1 write unit, inside the always-free 25/25.
-  (On-demand would be pennies a month; provisioned keeps it at exactly $0.)
+- DynamoDB on-demand: a few thousand reads and writes a month, about $0.01 even
+  with no free tier (reserved capacity would cost ~$0.57/month outside it).
 - EventBridge scheduled rules are free. Logs are kept one week.
 """
 
@@ -42,9 +42,7 @@ class DealAlertStack(Stack):
             self,
             "State",
             partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
-            billing_mode=dynamodb.BillingMode.PROVISIONED,
-            read_capacity=1,
-            write_capacity=1,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             time_to_live_attribute="expires",
             removal_policy=RemovalPolicy.DESTROY,
         )
@@ -79,4 +77,15 @@ class DealAlertStack(Stack):
             schedule=events.Schedule.rate(Duration.minutes(interval_minutes)),
             # No retries: the next scheduled run is never far away.
             targets=[targets.LambdaFunction(fn, retry_attempts=0)],
+        )
+
+        # Sunday 17:00 UTC: a low-priority "still running" push, urgent if checks have stopped.
+        events.Rule(
+            self,
+            "WeeklyNote",
+            description="Weekly 'deal alert is still running' push",
+            schedule=events.Schedule.cron(minute="0", hour="17", week_day="SUN"),
+            targets=[targets.LambdaFunction(
+                fn, event=events.RuleTargetInput.from_object({"task": "weekly-note"}), retry_attempts=2
+            )],
         )

@@ -7,7 +7,7 @@ description = "Scheduled Lambda that watches laptop prices and pushes deals to n
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "boto3", "aws-cdk-lib>=2.170,<3", "constructs>=10,<11"]
+dev = ["pytest>=8", "boto3", "moto[dynamodb]>=5", "aws-cdk-lib>=2.170,<3", "constructs>=10,<11"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

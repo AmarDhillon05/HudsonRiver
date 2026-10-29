@@ -47,7 +47,12 @@ def load(path: Path = DEFAULT_PATH) -> Watchlist:
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.lower())
+    """Lowercase, collapse spaces, and spell generations one way: "14th Gen",
+    "Gen14", "Generation 14" and "G14" all become "gen 14" (so match on that)."""
+    text = re.sub(r"\s+", " ", text.lower())
+    text = re.sub(r"(?<![a-z0-9])(\d{1,2})(?:st|nd|rd|th) gen(?:eration)?(?![a-z0-9])", r"gen \1", text)
+    text = re.sub(r"(?<![a-z0-9])gen(?:eration)? ?(\d{1,2})(?![0-9])", r"gen \1", text)
+    return text
 
 
 def _contains(text: str, term: str) -> bool:

@@ -1,4 +1,5 @@
-"""Lambda entry point, run on a schedule by EventBridge."""
+"""Lambda entry point, run on two EventBridge schedules: the price check, and a
+weekly "still running" note (event ``{"task": "weekly-note"}``)."""
 
 from __future__ import annotations
 
@@ -14,15 +15,16 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 def handler(event, context):
-    result = check.run(
-        watchlist.load(),
-        DynamoState(os.environ["TABLE_NAME"]),
-        NtfySender(
-            os.environ["NTFY_TOPIC"],
-            os.environ.get("NTFY_SERVER", "https://ntfy.sh"),
-            os.environ.get("NTFY_TOKEN") or None,
-        ),
-        bestbuy_search=check.bestbuy_searcher(os.environ.get("BESTBUY_API_KEY")),
+    wl = watchlist.load()
+    state = DynamoState(os.environ["TABLE_NAME"])
+    sender = NtfySender(
+        os.environ["NTFY_TOPIC"],
+        os.environ.get("NTFY_SERVER", "https://ntfy.sh"),
+        os.environ.get("NTFY_TOKEN") or None,
     )
-    logging.info("check finished: %s", json.dumps(result))
+    if (event or {}).get("task") == "weekly-note":
+        result = check.weekly_note(wl, state, sender)
+    else:
+        result = check.run(wl, state, sender, bestbuy_search=check.bestbuy_searcher(os.environ.get("BESTBUY_API_KEY")))
+    logging.info("finished: %s", json.dumps(result))
     return result

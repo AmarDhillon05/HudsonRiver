@@ -42,3 +42,12 @@ def test_excludes_reconditioned_and_scratch_and_dent():
     g1a = ITEMS["elitebook-x-g1a"]
     assert not matches(g1a, "HP Elitebook X G1a 14\" Ryzen AI 9 HX Pro 375, 32GB (Factory Reconditioned) $975.99", WL.exclude)
     assert not matches(g1a, "HP EliteBook X G1a (S&D): 14\" OLED $899", WL.exclude)
+
+
+def test_generation_spellings():
+    x1 = ITEMS["x1-carbon-gen14"]
+    for title in ("ThinkPad X1 Carbon 14th Gen $1,499", "X1 Carbon Gen14 Aura $1,499",
+                  "X1 Carbon Generation 14 $1,499", "X1 Carbon G14 $1,499"):
+        assert matches(x1, title, WL.exclude), title
+    assert not matches(x1, "X1 Carbon Gen 1 $499", WL.exclude)
+    assert not matches(x1, "X1 Carbon 13th Gen $1,299", WL.exclude)
