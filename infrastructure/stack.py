@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import Duration, RemovalPolicy, Stack
+from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
@@ -70,6 +70,7 @@ class DealAlertStack(Stack):
             ),
         )
         table.grant_read_write_data(fn)
+        CfnOutput(self, "TableName", value=table.table_name, description="Used by `make reset-low`")
 
         events.Rule(
             self,

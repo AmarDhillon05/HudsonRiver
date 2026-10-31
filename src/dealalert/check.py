@@ -1,16 +1,13 @@
 """One pass over the watchlist: fetch, filter, decide, alert.
 
-Alert rules:
-- Slickdeals post that matches an item, posted recently, not seen before:
-  at or below target -> high priority; within ``near_pct`` above target ->
-  default priority; price not in the title -> low priority ("check price").
-  Anything pricier is ignored. Each post alerts at most once.
-- Best Buy: alert when the lowest matching price is at or below target and
-  lower than the price last alerted on, or when it is a new low within
-  ``near_pct`` of target.
+Alert rule: each laptop tracks the lowest price seen so far, starting at the
+watchlist's ``start_at`` ($2,000). A matching, recent listing (new units only)
+priced below that sends a high-priority alert and becomes the new lowest, so
+each alert is a new low. A matching Slickdeals post with no price in its title
+gets one low-priority "check price" alert.
 
 Once a day ``daily_summary`` pushes what happened, even when nothing was
-found: alerts sent, checks run, and the closest price seen for each laptop.
+found: alerts sent, checks run, and each laptop's lowest and today's price.
 """
 
 from __future__ import annotations
@@ -27,75 +24,7 @@ from .watchlist import Item, Watchlist, matches
 
 log = logging.getLogger(__name__)
 
-SlickdealsSearch = Callable[[str], list[Listing]]
-BestBuySearch = Callable[[str], list[Listing]]
-
-
-def _money(value: float) -> str:
-    return f"${value:,.0f}" if value == int(value) else f"${value:,.2f}"
-
-
-def slickdeals_alerts(item: Item, listings: list[Listing], wl: Watchlist, state: State, now: datetime) -> list[Alert]:
-    alerts = []
-    cutoff = now - timedelta(days=wl.max_post_age_days)
-    near_limit = item.target * (1 + wl.near_pct)
-    for listing in listings:
-        if not matches(item, listing.title, wl.exclude):
-            continue
-        if listing.posted and listing.posted < cutoff:
-            continue
-        if state.seen(listing.url):
-            continue
-        state.mark_seen(listing.url)
-
-        price = listing.price
-        if price is None:
-            alerts.append(Alert(f"{item.name}: new deal posted", listing.title, ntfy.CHECK_PRICE, listing.url, ("eyes",)))
-        elif price <= item.target:
-            alerts.append(Alert(
-                f"{item.name} at {_money(price)} (target {_money(item.target)})",
-                listing.title, ntfy.AT_TARGET, listing.url, ("moneybag",),
-            ))
-        elif price <= near_limit:
-            alerts.append(Alert(
-                f"{item.name} at {_money(price)}, {_money(price - item.target)} over target",
-                listing.title, ntfy.NEAR_TARGET, listing.url, ("chart_with_downwards_trend",),
-            ))
-    return alerts
-
-
-def bestbuy_alerts(item: Item, listings: list[Listing], wl: Watchlist, state: State, now: datetime) -> list[Alert]:
-    priced = [l for l in listings if l.price is not None and matches(item, l.title, wl.exclude)]
-    if not priced:
-        return []
-    cheapest = min(priced, key=lambda l: l.price)
-    price = cheapest.price
-    prev = state.get("best#" + item.id) or {}
-    prev_low = prev.get("low")
-    prev_alerted = prev.get("alerted")
-
-    alert = None
-    if price <= item.target and (prev_alerted is None or price < prev_alerted):
-        alert = Alert(
-            f"{item.name} at {_money(price)} at Best Buy (target {_money(item.target)})",
-            cheapest.title, ntfy.AT_TARGET, cheapest.url, ("moneybag",),
-        )
-    elif price <= item.target * (1 + wl.near_pct) and prev_low is not None and price < prev_low:
-        alert = Alert(
-            f"{item.name} new low: {_money(price)} at Best Buy",
-            f"{cheapest.title}\nWas {_money(prev_low)}. {_money(price - item.target)} over target.",
-            ntfy.NEAR_TARGET, cheapest.url, ("chart_with_downwards_trend",),
-        )
-
-    record = {"low": price, "url": cheapest.url, "at": now.isoformat()}
-    if alert and alert.priority == ntfy.AT_TARGET:
-        record["alerted"] = price
-    elif prev_alerted is not None and price <= item.target:
-        record["alerted"] = prev_alerted
-    # Otherwise the price is back above target: drop "alerted" so the next drop alerts again.
-    state.put("best#" + item.id, record)
-    return [alert] if alert else []
-
+Search = Callable[[str], list[Listing]]
 
 SOURCE_LABELS = {"slickdeals": "Slickdeals", "bestbuy": "Best Buy"}
 
@@ -107,12 +36,56 @@ STALE_AFTER = timedelta(hours=6)
 HEALTH_KEY = "health"
 
 
+def _money(value: float) -> str:
+    return f"${value:,.0f}" if value == int(value) else f"${value:,.2f}"
+
+
+def _low_key(item: Item) -> str:
+    return "low#" + item.id
+
+
+def decide(item: Item, listings: list[Listing], wl: Watchlist, state: State, now: datetime) -> tuple[list[Alert], Listing | None]:
+    """Alerts for one item from every source's listings this run, plus the
+    cheapest current listing (for the daily summary)."""
+    cutoff = now - timedelta(days=wl.max_post_age_days)
+    current = [
+        l for l in listings
+        if matches(item, l.title, wl.exclude) and (l.posted is None or l.posted >= cutoff)
+    ]
+    alerts = []
+
+    for l in current:
+        if l.price is None and not state.seen(l.url):
+            state.mark_seen(l.url)
+            alerts.append(Alert(f"{item.name}: new deal posted", l.title, ntfy.LOW, l.url, ("eyes",)))
+
+    priced = [l for l in current if l.price is not None]
+    cheapest = min(priced, key=lambda l: l.price, default=None)
+    if cheapest is None:
+        return alerts, None
+
+    low = state.get(_low_key(item))
+    threshold = low["price"] if low else wl.start_for(item)
+    if cheapest.price < threshold:
+        where = SOURCE_LABELS.get(cheapest.source, cheapest.source)
+        before = f"Previous low: {_money(threshold)}" if low else f"First price under {_money(threshold)}"
+        alerts.append(Alert(
+            f"{item.name}: new low {_money(cheapest.price)} at {where}",
+            f"{cheapest.title}\n{before}",
+            ntfy.HIGH, cheapest.url, ("moneybag",),
+        ))
+        state.put(_low_key(item), {
+            "price": cheapest.price, "url": cheapest.url, "source": cheapest.source, "at": now.isoformat(),
+        })
+    return alerts, cheapest
+
+
 def run(
     wl: Watchlist,
     state: State,
     sender,
-    slickdeals_search: SlickdealsSearch = slickdeals.search,
-    bestbuy_search: BestBuySearch | None = None,
+    slickdeals_search: Search = slickdeals.search,
+    bestbuy_search: Search | None = None,
     now: datetime | None = None,
 ) -> dict:
     """Check every item. A failing source is logged and skipped. A source that
@@ -122,13 +95,12 @@ def run(
     sent, fetches, failures = 0, 0, 0
     source_results: dict[str, list[str | None]] = {}  # source -> error per fetch (None = ok)
     closest: dict[str, Listing] = {}  # item id -> cheapest current matching listing
+    sources = [("slickdeals", slickdeals_search)] + ([("bestbuy", bestbuy_search)] if bestbuy_search else [])
     # Items that share a query (both Blade 14s) fetch it once; None marks a failed fetch.
     fetched: dict[tuple[str, str], list[Listing] | None] = {}
     for item in wl.items:
-        sources = [("slickdeals", slickdeals_search, slickdeals_alerts)]
-        if bestbuy_search:
-            sources.append(("bestbuy", bestbuy_search, bestbuy_alerts))
-        for name, search, decide in sources:
+        listings: list[Listing] = []
+        for name, search in sources:
             key = (name, item.query)
             if key not in fetched:
                 fetches += 1
@@ -140,31 +112,18 @@ def run(
                     failures += 1
                     source_results.setdefault(name, []).append(f"{type(e).__name__}: {e}")
                     log.exception("fetch failed: %s for %s", name, item.id)
-            listings = fetched[key]
-            if listings is None:
-                continue
-            candidate = _cheapest_current(item, listings, wl, now)
-            if candidate and (item.id not in closest or candidate.price < closest[item.id].price):
-                closest[item.id] = candidate
-            for alert in decide(item, listings, wl, state, now):
-                sender.send(alert)
-                sent += 1
+            listings += fetched[key] or []
+        alerts, cheapest = decide(item, listings, wl, state, now)
+        if cheapest:
+            closest[item.id] = cheapest
+        for alert in alerts:
+            sender.send(alert)
+            sent += 1
 
     _update_health(state, sender, source_results, sent, closest, now)
     if fetches and failures == fetches:
         raise RuntimeError(f"all {fetches} price fetches failed")
     return {"items": len(wl.items), "fetches": fetches, "failures": failures, "alerts": sent}
-
-
-def _cheapest_current(item: Item, listings: list[Listing], wl: Watchlist, now: datetime) -> Listing | None:
-    """Cheapest priced listing that matches the item and is still recent (Best
-    Buy listings carry no date and are always current)."""
-    cutoff = now - timedelta(days=wl.max_post_age_days)
-    current = [
-        l for l in listings
-        if l.price is not None and matches(item, l.title, wl.exclude) and (l.posted is None or l.posted >= cutoff)
-    ]
-    return min(current, key=lambda l: l.price, default=None)
 
 
 def _update_health(state: State, sender, source_results: dict, sent: int, closest: dict, now: datetime) -> None:
@@ -181,13 +140,13 @@ def _update_health(state: State, sender, source_results: dict, sent: int, closes
                     f"Deal alert: {label} checks are failing",
                     f"Every {label} check has failed since {since[:16].replace('T', ' ')} UTC, "
                     f"so deals there can be missed.\nLast error: {record['error']}",
-                    ntfy.AT_TARGET, _source_url(name), ("warning",),
+                    ntfy.HIGH, _source_url(name), ("warning",),
                 ))
                 record["alerted"] = True
         else:
             if record.get("alerted"):
                 sender.send(Alert(f"Deal alert: {label} checks are working again", "Back to normal.",
-                                  ntfy.CHECK_PRICE, _source_url(name), ("white_check_mark",)))
+                                  ntfy.LOW, _source_url(name), ("white_check_mark",)))
             record = {}
         sources[name] = record
     health["sources"] = sources
@@ -209,7 +168,7 @@ def _source_url(name: str) -> str:
 
 def daily_summary(wl: Watchlist, state: State, sender, now: datetime | None = None) -> dict:
     """Push once a day whatever happened, so you hear from it even with no deals:
-    alerts sent, checks run, and the closest price seen for each laptop.
+    alerts sent, checks run, and each laptop's lowest so far and today's price.
     Urgent if no check has succeeded recently."""
     now = now or datetime.now(timezone.utc)
     health = state.get(HEALTH_KEY) or {}
@@ -221,27 +180,30 @@ def daily_summary(wl: Watchlist, state: State, sender, now: datetime | None = No
     lines = []
     best_gap, click = None, "https://slickdeals.net"
     for item in wl.items:
-        seen = day.get(item.id)
-        if not seen:
-            lines.append(f"{item.name}: nothing posted (target {_money(item.target)})")
-            continue
-        gap = seen["price"] - item.target
-        where = SOURCE_LABELS.get(seen.get("source"), "")
-        status = "AT TARGET" if gap <= 0 else f"{_money(gap)} over"
-        lines.append(f"{item.name}: {_money(seen['price'])} at {where}, {status} (target {_money(item.target)})")
-        if best_gap is None or gap < best_gap:
-            best_gap, click = gap, seen["url"]
+        low = state.get(_low_key(item))
+        today = day.get(item.id)
+        if low:
+            when = datetime.fromisoformat(low["at"]).strftime("%b %-d")
+            line = f"{item.name}: lowest {_money(low['price'])} ({SOURCE_LABELS.get(low.get('source'), '')}, {when})"
+        else:
+            line = f"{item.name}: nothing under {_money(wl.start_for(item))} yet"
+        if today:
+            line += f"; today {_money(today['price'])}"
+            gap = today["price"] - (low["price"] if low else wl.start_for(item))
+            if best_gap is None or gap < best_gap:
+                best_gap, click = gap, today["url"]
+        lines.append(line)
 
     if last_ok and now - datetime.fromisoformat(last_ok) < STALE_AFTER:
         if alerts:
             title = f"Deal alert: {alerts} alert{'s' if alerts != 1 else ''} today"
         else:
-            title = "Deal alert: no deals today"
-        priority = ntfy.CHECK_PRICE
+            title = "Deal alert: no new lows today"
+        priority = ntfy.LOW
     else:
         when = f"since {last_ok[:16].replace('T', ' ')} UTC" if last_ok else "yet"
         title = f"Deal alert hasn't completed a check {when}"
-        priority = ntfy.AT_TARGET
+        priority = ntfy.HIGH
     message = "\n".join(lines) + f"\nChecked {checks} time{'s' if checks != 1 else ''} since the last summary."
     sender.send(Alert(title, message, priority, click, ("calendar",)))
 
@@ -250,7 +212,7 @@ def daily_summary(wl: Watchlist, state: State, sender, now: datetime | None = No
     return {"summary": title}
 
 
-def bestbuy_searcher(api_key: str | None) -> BestBuySearch | None:
+def bestbuy_searcher(api_key: str | None) -> Search | None:
     if not api_key:
         return None
     return lambda query: bestbuy.search(query, api_key)

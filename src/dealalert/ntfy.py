@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from . import http
 
 # ntfy priorities: 1 min, 2 low, 3 default, 4 high, 5 urgent.
-AT_TARGET = 4
-NEAR_TARGET = 3
-CHECK_PRICE = 2
+HIGH = 4  # a new low price, or the checker is broken
+LOW = 2  # a matching post with no price; the daily summary
 
 
 @dataclass(frozen=True)

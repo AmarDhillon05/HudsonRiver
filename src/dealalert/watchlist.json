@@ -3,83 +3,72 @@
     "refurb", "refurbished", "reconditioned", "renewed", "recertified", "pre-owned", "preowned",
     "open box", "open-box", "used", "scratch and dent", "s&d", "expired", "for parts", "woot grade"
   ],
-  "near_pct": 0.10,
+  "start_at": 2000,
   "max_post_age_days": 3,
   "items": [
     {
       "id": "x1-carbon-gen14",
       "name": "ThinkPad X1 Carbon Gen 14",
-      "target": 1600,
       "query": "x1 carbon",
       "match": [["x1 carbon"], ["gen 14", "g14"]]
     },
     {
       "id": "elitebook-x-g1a",
       "name": "HP EliteBook X G1a",
-      "target": 1300,
       "query": "elitebook x g1a",
       "match": [["elitebook x"], ["g1a"]]
     },
     {
       "id": "p14s-gen6-amd",
       "name": "ThinkPad P14s Gen 6 AMD",
-      "target": 1300,
       "query": "p14s gen 6",
       "match": [["p14s"], ["gen 6", "g6"], ["amd", "ryzen"]]
     },
     {
       "id": "t14s-gen6-amd",
       "name": "ThinkPad T14s Gen 6 AMD",
-      "target": 1100,
       "query": "t14s",
       "match": [["t14s"], ["gen 6", "g6"], ["amd", "ryzen"]]
     },
     {
       "id": "elitebook-x-g2",
       "name": "HP EliteBook X G2",
-      "target": 1800,
       "query": "elitebook x g2",
       "match": [["elitebook x"], ["g2", "g2a", "g2i"]]
     },
     {
       "id": "xps-14-2026",
       "name": "Dell XPS 14 (2026)",
-      "target": 1400,
       "query": "xps 14",
       "match": [["xps 14"], ["2026", "da14260", "ultra 5 325", "ultra 7 355", "358h", "388h"]]
     },
     {
       "id": "tuxedo-infinitybook-pro-14",
       "name": "TUXEDO InfinityBook Pro 14 Gen10",
-      "target": 1300,
       "query": "infinitybook pro 14",
       "match": [["infinitybook pro 14"], ["gen 10"]]
     },
     {
       "id": "system76-lemur-pro",
       "name": "System76 Lemur Pro",
-      "target": 1200,
       "query": "lemur pro",
       "match": [["lemur pro"]]
     },
     {
       "id": "blade-14-5070",
       "name": "Razer Blade 14 RTX 5070",
-      "target": 1800,
       "query": "blade 14",
       "match": [["blade 14"], ["5070"]]
     },
     {
       "id": "blade-14-5060",
       "name": "Razer Blade 14 RTX 5060",
-      "target": 1600,
       "query": "blade 14",
       "match": [["blade 14"], ["5060"]]
     },
     {
       "id": "zephyrus-g14-5070ti",
       "name": "ASUS Zephyrus G14 RTX 5070 Ti",
-      "target": 1800,
       "query": "zephyrus g14",
       "match": [["zephyrus g14"], ["5070 ti", "5070ti"]]
     }

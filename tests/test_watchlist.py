@@ -11,7 +11,7 @@ def test_shipped_watchlist_loads():
         "xps-14-2026", "tuxedo-infinitybook-pro-14", "system76-lemur-pro",
         "blade-14-5070", "blade-14-5060", "zephyrus-g14-5070ti",
     }
-    assert all(i.target > 0 for i in WL.items)
+    assert WL.start_at == 2000 and all(i.start is None for i in WL.items)
 
 
 def test_x1_carbon_matches_only_gen_14():

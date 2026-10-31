@@ -13,7 +13,7 @@ GITHUB_REPO ?= AmarDhillon05/hudsonriver
 GITHUB_BRANCH ?= main
 CONTEXT = -c ntfyTopic=$(NTFY_TOPIC) -c intervalMinutes=$(INTERVAL_MINUTES) -c summaryHourUtc=$(SUMMARY_HOUR_UTC) $(if $(BESTBUY_API_KEY),-c bestbuyApiKey=$(BESTBUY_API_KEY))
 
-.PHONY: setup test dry-run synth setup-ci bootstrap deploy deploy-github-role destroy
+.PHONY: setup test dry-run synth setup-ci bootstrap deploy deploy-github-role destroy reset-low
 
 setup: ## Create .venv and install everything (run once)
 	python3 -m venv .venv
@@ -47,3 +47,10 @@ deploy-github-role: ## Once: the role GitHub Actions uses to auto-deploy
 
 destroy:
 	cd infrastructure && $(CDK) destroy LaptopDealAlert $(CONTEXT)
+
+reset-low: ## Forget a laptop's lowest price (e.g. after a pricing error): make reset-low ITEM=p14s-gen6-amd
+	@test -n "$(ITEM)" || (echo "set ITEM=<id from src/dealalert/watchlist.json>" >&2; exit 2)
+	aws dynamodb delete-item --table-name "$$(aws cloudformation describe-stacks --stack-name LaptopDealAlert \
+	  --query "Stacks[0].Outputs[?OutputKey=='TableName'].OutputValue" --output text)" \
+	  --key '{"pk": {"S": "low#$(ITEM)"}}'
+	@echo "reset: $(ITEM) starts over from the watchlist's start price"

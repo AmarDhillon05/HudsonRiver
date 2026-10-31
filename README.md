@@ -27,10 +27,13 @@ listed fee.
 
 ## Alerts
 
+Each laptop tracks the **lowest price seen so far**, starting at $2,000
+(`start_at` in the watchlist). Any matching listing below that sends an alert
+and becomes the new lowest, so every alert is a new low.
+
 | Priority | When |
 | --- | --- |
-| High (4) | A new deal at or below your target price |
-| Default (3) | A new deal within 10% of target, or a new Best Buy low within 10% |
+| High (4) | A new lowest price for a laptop (the first one must be under $2,000) |
 | Low (2) | A matching deal was posted but its price isn't in the title |
 
 Plus a daily summary and alerts about the checker itself, so silence never means "broken":
@@ -44,15 +47,19 @@ Plus a daily summary and alerts about the checker itself, so silence never means
 Change the summary time with `SUMMARY_HOUR_UTC=<0-23>` (13 is 9am Eastern in
 summer, 8am in winter).
 
-Each Slickdeals post alerts once. A Best Buy price alerts once at target, then
-again only if it drops further, or after it rises above target and drops back.
-Tapping an alert opens the deal.
+A price equal to or above the current lowest never alerts, so the same deal
+can't alert twice. Tapping an alert opens the deal.
+
+If a bad price becomes a laptop's lowest (a pricing error, or a misread title),
+later real deals can't beat it. Reset that laptop with
+`make reset-low ITEM=<id>` (ids are in the watchlist).
 
 ## The watchlist
 
-`src/dealalert/watchlist.json`. For each laptop:
+`src/dealalert/watchlist.json`. Global `start_at` (default 2000) is the price a
+laptop's first alert must beat. For each laptop:
 
-- `target`: alert at or below this price.
+- `start` (optional): overrides `start_at` for that laptop.
 - `query`: what to search for on Slickdeals and Best Buy. Searches are fuzzy, so
   results are filtered with `match`.
 - `match`: groups of terms. A listing matches when its title has at least one

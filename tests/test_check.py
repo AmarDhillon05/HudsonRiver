@@ -9,8 +9,8 @@ from dealalert.state import MemoryState
 from dealalert.watchlist import Item, Watchlist
 
 NOW = datetime(2026, 10, 25, 20, 0, tzinfo=timezone.utc)
-X1 = Item("x1", "X1 Carbon Gen 14", 1600, "x1 carbon gen 14", [["x1 carbon"], ["gen 14"]])
-WL = Watchlist(items=[X1], exclude=["refurb"], near_pct=0.10, max_post_age_days=3)
+X1 = Item("x1", "X1 Carbon Gen 14", "x1 carbon gen 14", [["x1 carbon"], ["gen 14"]])
+WL = Watchlist(items=[X1], exclude=["refurb"], start_at=2000, max_post_age_days=3)
 
 
 def post(title, price, url="https://slickdeals.net/f/1", age_days=0.5):
@@ -21,38 +21,69 @@ def bb(price, url="https://bestbuy.com/x1"):
     return Listing("bestbuy", "Lenovo ThinkPad X1 Carbon Gen 14", url, price)
 
 
-def run(slick=(), best=None, state=None):
+def run(slick=(), best=None, state=None, wl=WL, now=NOW):
     sender = ConsoleSender()
     state = state or MemoryState()
     result = check.run(
-        WL, state, sender,
+        wl, state, sender,
         slickdeals_search=lambda q: list(slick),
         bestbuy_search=(lambda q: list(best)) if best is not None else None,
-        now=NOW,
+        now=now,
     )
     return sender.sent, state, result
 
 
-def test_slickdeals_priorities():
-    sent, _, _ = run([
-        post("X1 Carbon Gen 14 $1,499", 1499, "https://sd/a"),
-        post("X1 Carbon Gen 14 $1,690", 1690, "https://sd/b"),
-        post("X1 Carbon Gen 14 $1,900", 1900, "https://sd/c"),
-        post("X1 Carbon Gen 14 deal", None, "https://sd/d"),
-    ])
-    assert [a.priority for a in sent] == [ntfy.AT_TARGET, ntfy.NEAR_TARGET, ntfy.CHECK_PRICE]
-    assert sent[0].url == "https://sd/a"
-    assert "$90 over target" in sent[1].title
+# --- lowest price seen so far ---------------------------------------------
+
+def test_first_price_under_start_alerts_and_sets_the_low():
+    sent, state, _ = run([post("X1 Carbon Gen 14 $1,899", 1899)])
+    assert [a.title for a in sent] == ["X1 Carbon Gen 14: new low $1,899 at Slickdeals"]
+    assert sent[0].priority == ntfy.HIGH and "First price under $2,000" in sent[0].message
+    assert state.get("low#x1")["price"] == 1899
 
 
-def test_slickdeals_alerts_each_post_once():
+def test_nothing_at_or_above_start_alerts():
+    sent, state, _ = run([post("X1 Carbon Gen 14 $2,000", 2000), post("X1 Carbon Gen 14 $2,299", 2299, "https://sd/b")])
+    assert sent == [] and state.get("low#x1") is None
+
+
+def test_only_lower_prices_alert_after_that():
+    state = MemoryState()
+    run([post("X1 Carbon Gen 14 $1,799", 1799, "https://sd/a")], state=state)
+    same, _, _ = run([post("X1 Carbon Gen 14 $1,799", 1799, "https://sd/b")], state=state)
+    higher, _, _ = run([post("X1 Carbon Gen 14 $1,850", 1850, "https://sd/c")], state=state)
+    lower, _, _ = run([post("X1 Carbon Gen 14 $1,649", 1649, "https://sd/d")], state=state)
+    assert same == [] and higher == []
+    assert [a.title for a in lower] == ["X1 Carbon Gen 14: new low $1,649 at Slickdeals"]
+    assert "Previous low: $1,799" in lower[0].message
+    assert state.get("low#x1")["price"] == 1649
+
+
+def test_the_same_post_never_alerts_twice():
     state = MemoryState()
     first, _, _ = run([post("X1 Carbon Gen 14 $1,499", 1499)], state=state)
     again, _, _ = run([post("X1 Carbon Gen 14 $1,499", 1499)], state=state)
     assert len(first) == 1 and again == []
 
 
-def test_slickdeals_skips_old_unmatched_and_excluded():
+def test_one_alert_per_run_for_the_cheapest_across_sources():
+    sent, state, _ = run([post("X1 Carbon Gen 14 $1,750", 1750, "https://sd/a"),
+                          post("X1 Carbon Gen 14 $1,690", 1690, "https://sd/b")], best=[bb(1720)])
+    assert [a.url for a in sent] == ["https://sd/b"]
+    sent, _, _ = run([], best=[bb(1599)], state=state)
+    assert [a.title for a in sent] == ["X1 Carbon Gen 14: new low $1,599 at Best Buy"]
+
+
+def test_per_item_start_overrides_start_at():
+    cheap = Item("x1", "X1 Carbon Gen 14", "q", [["x1 carbon"]], start=1500)
+    wl = Watchlist(items=[cheap], start_at=2000)
+    sent, _, _ = run([post("X1 Carbon $1,599", 1599)], wl=wl)
+    assert sent == []
+    sent, _, _ = run([post("X1 Carbon $1,449", 1449)], wl=wl)
+    assert "First price under $1,500" in sent[0].message
+
+
+def test_skips_old_unmatched_and_excluded():
     sent, _, _ = run([
         post("X1 Carbon Gen 14 $1,299", 1299, "https://sd/old", age_days=10),
         post("X1 Carbon Gen 13 $1,299", 1299, "https://sd/g13"),
@@ -61,50 +92,30 @@ def test_slickdeals_skips_old_unmatched_and_excluded():
     assert sent == []
 
 
-def test_bestbuy_alerts_at_target_once_then_on_further_drop():
+def test_post_without_a_price_alerts_once_at_low_priority():
     state = MemoryState()
-    s1, _, _ = run(best=[bb(1700), bb(1599, "https://bestbuy.com/cheap")], state=state)
-    s2, _, _ = run(best=[bb(1599)], state=state)
-    s3, _, _ = run(best=[bb(1549)], state=state)
-    assert [a.priority for a in s1] == [ntfy.AT_TARGET]
-    assert s1[0].url == "https://bestbuy.com/cheap"
-    assert s2 == []
-    assert [a.priority for a in s3] == [ntfy.AT_TARGET]
+    first, _, _ = run([post("X1 Carbon Gen 14 deal, see thread", None)], state=state)
+    again, _, _ = run([post("X1 Carbon Gen 14 deal, see thread", None)], state=state)
+    assert [a.priority for a in first] == [ntfy.LOW] and again == []
 
 
-def test_bestbuy_realerts_after_price_goes_back_up():
-    state = MemoryState()
-    run(best=[bb(1599)], state=state)
-    run(best=[bb(1999)], state=state)
-    again, _, _ = run(best=[bb(1599)], state=state)
-    assert [a.priority for a in again] == [ntfy.AT_TARGET]
+def test_items_sharing_a_query_fetch_it_once():
+    a = Item("a", "Blade 14 RTX 5070", "blade 14", [["blade 14"], ["5070"]])
+    b = Item("b", "Blade 14 RTX 5060", "blade 14", [["blade 14"], ["5060"]])
+    wl = Watchlist(items=[a, b])
+    calls = []
 
-
-def test_bestbuy_near_target_new_low():
-    state = MemoryState()
-    first, _, _ = run(best=[bb(1750)], state=state)
-    lower, _, _ = run(best=[bb(1690)], state=state)
-    assert first == []  # no previous low to compare against
-    assert [a.priority for a in lower] == [ntfy.NEAR_TARGET]
-    assert state.get("best#x1")["low"] == 1690
-
-
-def test_one_failing_source_does_not_stop_the_other():
-    def broken(q):
-        raise OSError("blocked")
+    def search(q):
+        calls.append(q)
+        return [post("Razer Blade 14 RTX 5060 $1,549", 1549, "https://sd/5060")]
 
     sender = ConsoleSender()
-    result = check.run(WL, MemoryState(), sender, slickdeals_search=broken, bestbuy_search=lambda q: [bb(1500)], now=NOW)
-    assert result["failures"] == 1 and len(sender.sent) == 1
+    result = check.run(wl, MemoryState(), sender, slickdeals_search=search, now=NOW)
+    assert calls == ["blade 14"] and result["fetches"] == 1
+    assert [x.title for x in sender.sent] == ["Blade 14 RTX 5060: new low $1,549 at Slickdeals"]
 
 
-def test_all_sources_failing_raises():
-    def broken(q):
-        raise OSError("blocked")
-
-    with pytest.raises(RuntimeError):
-        check.run(WL, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)
-
+# --- failures ----------------------------------------------------------------
 
 def broken(q):
     raise OSError("HTTP 403 Forbidden")
@@ -121,6 +132,23 @@ def check_at(state, sender, when, slick):
         pass  # every fetch failed; expected while the source is down
 
 
+def test_one_failing_source_does_not_stop_the_other():
+    sender = ConsoleSender()
+    result = check.run(WL, MemoryState(), sender, slickdeals_search=broken, bestbuy_search=lambda q: [bb(1500)], now=NOW)
+    assert result["failures"] == 1 and len(sender.sent) == 1
+
+
+def test_all_sources_failing_raises():
+    with pytest.raises(RuntimeError):
+        check.run(WL, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)
+
+
+def test_a_failed_shared_query_counts_once():
+    wl = Watchlist(items=[Item("a", "A", "same", [["a"]]), Item("b", "B", "same", [["b"]])])
+    with pytest.raises(RuntimeError, match="all 1 price fetches failed"):
+        check.run(wl, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)
+
+
 def test_failing_source_alerts_once_after_three_hours_then_on_recovery():
     state, sender = MemoryState(), ConsoleSender()
     for minutes in (0, 30, 120, 150):
@@ -129,7 +157,7 @@ def test_failing_source_alerts_once_after_three_hours_then_on_recovery():
     check_at(state, sender, NOW + timedelta(hours=3), broken)
     check_at(state, sender, NOW + timedelta(hours=4), broken)
     assert [a.title for a in sender.sent] == ["Deal alert: Slickdeals checks are failing"]
-    assert sender.sent[0].priority == ntfy.AT_TARGET and "403" in sender.sent[0].message
+    assert sender.sent[0].priority == ntfy.HIGH and "403" in sender.sent[0].message
     check_at(state, sender, NOW + timedelta(hours=5), ok_slick)
     check_at(state, sender, NOW + timedelta(hours=6), ok_slick)
     assert [a.title for a in sender.sent][1:] == ["Deal alert: Slickdeals checks are working again"]
@@ -144,44 +172,42 @@ def test_a_blip_resets_the_failure_clock():
     assert sender.sent == []
 
 
-def test_daily_summary_with_no_deals_still_pushes_closest_prices():
+# --- daily summary -------------------------------------------------------------
+
+def test_daily_summary_shows_lowest_and_today():
     state = MemoryState()
-    # Seen before (no new alert) but still the closest current price; one old post ignored.
-    state.mark_seen("https://sd/near")
-    run([post("X1 Carbon Gen 14 $1,749", 1749, "https://sd/near"),
-         post("X1 Carbon Gen 14 $1,299", 1299, "https://sd/old", age_days=10)], state=state)
+    run([post("X1 Carbon Gen 14 $1,649", 1649, "https://sd/low")], state=state)
+    run([post("X1 Carbon Gen 14 $1,749", 1749, "https://sd/today")], state=state, now=NOW + timedelta(hours=1))
+    sender = ConsoleSender()
+    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=2))
+    [note] = sender.sent
+    assert note.title == "Deal alert: 1 alert today"
+    assert "X1 Carbon Gen 14: lowest $1,649 (Slickdeals, Oct 25); today $1,649" in note.message
+    assert "Checked 2 times since the last summary." in note.message
+
+
+def test_daily_summary_with_nothing_found():
+    state = MemoryState()
     run([], state=state)
     sender = ConsoleSender()
     check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
     [note] = sender.sent
-    assert note.title == "Deal alert: no deals today"
-    assert note.priority == ntfy.CHECK_PRICE
-    assert "X1 Carbon Gen 14: $1,749 at Slickdeals, $149 over (target $1,600)" in note.message
-    assert "Checked 2 times since the last summary." in note.message
-    assert note.url == "https://sd/near"
+    assert note.title == "Deal alert: no new lows today"
+    assert note.priority == ntfy.LOW
+    assert "X1 Carbon Gen 14: nothing under $2,000 yet" in note.message
+    assert "Checked 1 time since" in note.message
 
 
-def test_daily_summary_counts_alerts_and_resets():
+def test_daily_summary_resets_its_counters():
     state = MemoryState()
     run([post("X1 Carbon Gen 14 $1,499", 1499)], state=state)
     sender = ConsoleSender()
     check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
-    assert sender.sent[0].title == "Deal alert: 1 alert today"
-    assert "AT TARGET" in sender.sent[0].message
-    run([], state=state, )
+    run([], state=state)
     check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=2))
-    assert sender.sent[1].title == "Deal alert: no deals today"
-    assert "X1 Carbon Gen 14: nothing posted (target $1,600)" in sender.sent[1].message
-    assert "Checked 1 time since" in sender.sent[1].message
-
-
-def test_daily_summary_keeps_the_cheapest_across_runs_and_sources():
-    state = MemoryState()
-    run([post("X1 Carbon Gen 14 $1,750", 1750, "https://sd/a")], best=[bb(1720)], state=state)
-    run([post("X1 Carbon Gen 14 $1,690", 1690, "https://sd/b")], best=[bb(1720)], state=state)
-    sender = ConsoleSender()
-    check.daily_summary(WL, state, sender, now=NOW + timedelta(hours=1))
-    assert "$1,690 at Slickdeals" in sender.sent[0].message
+    assert sender.sent[1].title == "Deal alert: no new lows today"
+    first_line = sender.sent[1].message.split("\n")[0]
+    assert "lowest $1,499" in first_line and "today" not in first_line
 
 
 def test_daily_summary_is_urgent_when_checks_stopped():
@@ -189,32 +215,8 @@ def test_daily_summary_is_urgent_when_checks_stopped():
     run([], state=state)
     sender = ConsoleSender()
     check.daily_summary(WL, state, sender, now=NOW + timedelta(days=2))
-    assert sender.sent[0].priority == ntfy.AT_TARGET
+    assert sender.sent[0].priority == ntfy.HIGH
     assert sender.sent[0].title.startswith("Deal alert hasn't completed a check since 2026-10-25 20:00")
     fresh = ConsoleSender()
     check.daily_summary(WL, MemoryState(), fresh, now=NOW)
     assert fresh.sent[0].title == "Deal alert hasn't completed a check yet"
-
-
-def test_items_sharing_a_query_fetch_it_once():
-    a = Item("a", "Blade 14 RTX 5070", 1800, "blade 14", [["blade 14"], ["5070"]])
-    b = Item("b", "Blade 14 RTX 5060", 1600, "blade 14", [["blade 14"], ["5060"]])
-    wl = Watchlist(items=[a, b], exclude=[], near_pct=0.10, max_post_age_days=3)
-    calls = []
-
-    def search(q):
-        calls.append(q)
-        return [post("Razer Blade 14 RTX 5060 $1,549", 1549, "https://sd/5060")]
-
-    sender = ConsoleSender()
-    result = check.run(wl, MemoryState(), sender, slickdeals_search=search, now=NOW)
-    assert calls == ["blade 14"] and result["fetches"] == 1
-    assert [x.title for x in sender.sent] == ["Blade 14 RTX 5060 at $1,549 (target $1,600)"]
-
-
-def test_a_failed_shared_query_counts_once():
-    a = Item("a", "A", 1, "same", [["a"]])
-    b = Item("b", "B", 1, "same", [["b"]])
-    wl = Watchlist(items=[a, b], exclude=[])
-    with pytest.raises(RuntimeError, match="all 1 price fetches failed"):
-        check.run(wl, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)

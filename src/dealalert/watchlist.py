@@ -1,8 +1,10 @@
-"""The watchlist: which laptops to look for and what price is worth an alert.
+"""The watchlist: which laptops to look for.
 
 Edit ``watchlist.json`` next to this file and redeploy. Each item's ``match`` is
 a list of groups; a listing title matches when it contains at least one term
 from every group. Titles containing any global ``exclude`` term never match.
+Alerts fire on each new lowest price, starting below ``start_at`` (or an item's
+own ``start``).
 """
 
 from __future__ import annotations
@@ -19,17 +21,21 @@ DEFAULT_PATH = Path(__file__).with_name("watchlist.json")
 class Item:
     id: str
     name: str
-    target: float
     query: str
     match: list[list[str]]
+    start: float | None = None  # overrides the watchlist's start_at for this item
 
 
 @dataclass(frozen=True)
 class Watchlist:
     items: list[Item]
     exclude: list[str] = field(default_factory=list)
-    near_pct: float = 0.10
+    start_at: float = 2000
     max_post_age_days: float = 3
+
+    def start_for(self, item: Item) -> float:
+        """The price a first alert must beat, before any low has been seen."""
+        return item.start if item.start is not None else self.start_at
 
 
 def load(path: Path = DEFAULT_PATH) -> Watchlist:
@@ -41,7 +47,7 @@ def load(path: Path = DEFAULT_PATH) -> Watchlist:
     return Watchlist(
         items=items,
         exclude=raw.get("exclude", []),
-        near_pct=raw.get("near_pct", 0.10),
+        start_at=raw.get("start_at", 2000),
         max_post_age_days=raw.get("max_post_age_days", 3),
     )
 
