@@ -6,7 +6,11 @@ ITEMS = {i.id: i for i in WL.items}
 
 
 def test_shipped_watchlist_loads():
-    assert set(ITEMS) == {"x1-carbon-gen14", "elitebook-x-g1a", "p14s-gen6-amd"}
+    assert set(ITEMS) == {
+        "x1-carbon-gen14", "elitebook-x-g1a", "p14s-gen6-amd", "t14s-gen6-amd", "elitebook-x-g2",
+        "xps-14-2026", "tuxedo-infinitybook-pro-14", "system76-lemur-pro",
+        "blade-14-5070", "blade-14-5060", "zephyrus-g14-5070ti",
+    }
     assert all(i.target > 0 for i in WL.items)
 
 
@@ -51,3 +55,26 @@ def test_generation_spellings():
         assert matches(x1, title, WL.exclude), title
     assert not matches(x1, "X1 Carbon Gen 1 $499", WL.exclude)
     assert not matches(x1, "X1 Carbon 13th Gen $1,299", WL.exclude)
+
+
+def test_sweep_additions_match_the_right_models():
+    def m(item_id, title):
+        return matches(ITEMS[item_id], title, WL.exclude)
+
+    assert m("t14s-gen6-amd", "Lenovo ThinkPad T14s Gen 6 14\" Ryzen AI 7 PRO 360, 32GB $1,049")
+    assert not m("t14s-gen6-amd", "ThinkPad T14s Gen 6 Snapdragon X Elite $899")
+    assert not m("t14s-gen6-amd", "ThinkPad T14s Gen 7 AMD Ryzen AI 7 PRO 450 $1,999")
+    assert m("elitebook-x-g2", "HP EliteBook X G2i 14 AI: Core Ultra X7 358H $1,799")
+    assert not m("elitebook-x-g2", "HP EliteBook x360 G2 $299")
+    assert m("xps-14-2026", "Dell XPS 14 (2026) Core Ultra 7 355, 32GB $1,399")
+    assert m("xps-14-2026", "Dell XPS 14 DA14260 X7 358H OLED $1,899")
+    assert not m("xps-14-2026", "Dell XPS 14: 14.5\" OLED, Intel Ultra 7 255H, RTX 4050 $2,699")
+    assert m("tuxedo-infinitybook-pro-14", "TUXEDO InfinityBook Pro 14 Gen10 AMD $1,299")
+    assert m("system76-lemur-pro", "System76 Lemur Pro 14\" $1,199")
+    assert m("blade-14-5070", "Razer Blade 14 RTX 5070 32GB OLED $1,799")
+    assert not m("blade-14-5070", "Razer Blade 14 RTX 5060 $1,549")
+    assert m("blade-14-5060", "Razer Blade 14 RTX 5060 $1,549")
+    assert m("zephyrus-g14-5070ti", "ASUS ROG Zephyrus G14 (2025) RTX 5070 Ti OLED $1,699")
+    assert not m("zephyrus-g14-5070ti", "ASUS ROG Zephyrus G14 RTX 5070 $1,399")
+    # The X1 matcher's "g14" must not catch a Zephyrus.
+    assert not m("x1-carbon-gen14", "ASUS ROG Zephyrus G14 RTX 5070 Ti $1,699")

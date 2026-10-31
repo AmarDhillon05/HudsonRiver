@@ -194,3 +194,27 @@ def test_daily_summary_is_urgent_when_checks_stopped():
     fresh = ConsoleSender()
     check.daily_summary(WL, MemoryState(), fresh, now=NOW)
     assert fresh.sent[0].title == "Deal alert hasn't completed a check yet"
+
+
+def test_items_sharing_a_query_fetch_it_once():
+    a = Item("a", "Blade 14 RTX 5070", 1800, "blade 14", [["blade 14"], ["5070"]])
+    b = Item("b", "Blade 14 RTX 5060", 1600, "blade 14", [["blade 14"], ["5060"]])
+    wl = Watchlist(items=[a, b], exclude=[], near_pct=0.10, max_post_age_days=3)
+    calls = []
+
+    def search(q):
+        calls.append(q)
+        return [post("Razer Blade 14 RTX 5060 $1,549", 1549, "https://sd/5060")]
+
+    sender = ConsoleSender()
+    result = check.run(wl, MemoryState(), sender, slickdeals_search=search, now=NOW)
+    assert calls == ["blade 14"] and result["fetches"] == 1
+    assert [x.title for x in sender.sent] == ["Blade 14 RTX 5060 at $1,549 (target $1,600)"]
+
+
+def test_a_failed_shared_query_counts_once():
+    a = Item("a", "A", 1, "same", [["a"]])
+    b = Item("b", "B", 1, "same", [["b"]])
+    wl = Watchlist(items=[a, b], exclude=[])
+    with pytest.raises(RuntimeError, match="all 1 price fetches failed"):
+        check.run(wl, MemoryState(), ConsoleSender(), slickdeals_search=broken, now=NOW)

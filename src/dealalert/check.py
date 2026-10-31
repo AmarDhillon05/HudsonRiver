@@ -122,20 +122,27 @@ def run(
     sent, fetches, failures = 0, 0, 0
     source_results: dict[str, list[str | None]] = {}  # source -> error per fetch (None = ok)
     closest: dict[str, Listing] = {}  # item id -> cheapest current matching listing
+    # Items that share a query (both Blade 14s) fetch it once; None marks a failed fetch.
+    fetched: dict[tuple[str, str], list[Listing] | None] = {}
     for item in wl.items:
         sources = [("slickdeals", slickdeals_search, slickdeals_alerts)]
         if bestbuy_search:
             sources.append(("bestbuy", bestbuy_search, bestbuy_alerts))
         for name, search, decide in sources:
-            fetches += 1
-            try:
-                listings = search(item.query)
-            except Exception as e:
-                failures += 1
-                source_results.setdefault(name, []).append(f"{type(e).__name__}: {e}")
-                log.exception("fetch failed: %s for %s", name, item.id)
+            key = (name, item.query)
+            if key not in fetched:
+                fetches += 1
+                try:
+                    fetched[key] = search(item.query)
+                    source_results.setdefault(name, []).append(None)
+                except Exception as e:
+                    fetched[key] = None
+                    failures += 1
+                    source_results.setdefault(name, []).append(f"{type(e).__name__}: {e}")
+                    log.exception("fetch failed: %s for %s", name, item.id)
+            listings = fetched[key]
+            if listings is None:
                 continue
-            source_results.setdefault(name, []).append(None)
             candidate = _cheapest_current(item, listings, wl, now)
             if candidate and (item.id not in closest or candidate.price < closest[item.id].price):
                 closest[item.id] = candidate
