@@ -1,7 +1,7 @@
 {
   "exclude": [
     "refurb", "refurbished", "reconditioned", "renewed", "recertified", "pre-owned", "preowned",
-    "open box", "open-box", "used", "scratch and dent", "s&d", "expired", "for parts", "woot grade"
+    "open box", "open-box", "open boxes", "open-boxes", "used", "scratch and dent", "s&d", "expired", "for parts", "woot grade"
   ],
   "start_at": 2000,
   "max_post_age_days": 3,
@@ -39,7 +39,7 @@
     {
       "id": "xps-14-2026",
       "name": "Dell XPS 14 (2026)",
-      "query": "xps 14",
+      "query": "dell xps 14",
       "match": [["xps 14"], ["2026", "da14260", "ultra 5 325", "ultra 7 355", "358h", "388h"]]
     },
     {
@@ -57,13 +57,13 @@
     {
       "id": "blade-14-5070",
       "name": "Razer Blade 14 RTX 5070",
-      "query": "blade 14",
+      "query": "razer blade 14",
       "match": [["blade 14"], ["5070"]]
     },
     {
       "id": "blade-14-5060",
       "name": "Razer Blade 14 RTX 5060",
-      "query": "blade 14",
+      "query": "razer blade 14",
       "match": [["blade 14"], ["5060"]]
     },
     {

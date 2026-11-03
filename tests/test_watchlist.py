@@ -78,3 +78,15 @@ def test_sweep_additions_match_the_right_models():
     assert not m("zephyrus-g14-5070ti", "ASUS ROG Zephyrus G14 RTX 5070 $1,399")
     # The X1 matcher's "g14" must not catch a Zephyrus.
     assert not m("x1-carbon-gen14", "ASUS ROG Zephyrus G14 RTX 5070 Ti $1,699")
+
+
+def test_excludes_open_box_plurals():
+    g14 = ITEMS["zephyrus-g14-5070ti"]
+    assert not matches(g14, "Open Boxes: ASUS ROG Zephyrus G14: 14\" 3K OLED, RTX 5070 Ti $1631.99", WL.exclude)
+    assert not matches(g14, "YMMV: ASUS ROG Zephyrus G14 (Open-Boxes): RTX 5070 Ti $1480.99", WL.exclude)
+
+
+def test_queries_name_the_brand_where_the_model_is_ambiguous():
+    # "blade 14" alone returns jigsaw blades on Slickdeals.
+    assert ITEMS["blade-14-5070"].query == ITEMS["blade-14-5060"].query == "razer blade 14"
+    assert ITEMS["xps-14-2026"].query == "dell xps 14"
